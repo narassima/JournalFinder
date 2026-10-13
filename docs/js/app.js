@@ -38,7 +38,8 @@ init().catch((e) => {
 
 async function init() {
   wireUI();
-  const get = (f) => fetch(`data/${f}`).then((r) => { if (!r.ok) throw new Error(`${f}: ${r.status}`); return r.json(); });
+  // no-cache = always revalidate with the server, so a stale browser copy of the data can never be shown
+  const get = (f) => fetch(`data/${f}`, { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error(`${f}: ${r.status}`); return r.json(); });
   const [journals, topics, asjc, meta] = await Promise.all([get("journals.json"), get("topics.json"), get("asjc.json"), get("meta.json")]);
   const t0 = performance.now();
   state.engine = new Engine({ journals, topics, asjc, meta });
@@ -46,7 +47,7 @@ async function init() {
 
   const st = $("#data-status");
   st.className = "data-status ready";
-  st.innerHTML = `● ${meta.counts.journals.toLocaleString()} journals · ${meta.counts.abdc.toLocaleString()} ABDC-rated · ${meta.counts.sjr ? meta.counts.sjr.toLocaleString() + " with SJR" : "SJR not loaded"} · updated ${meta.built.slice(0, 10)}`;
+  st.innerHTML = `● ${meta.counts.journals.toLocaleString()} journals · ${meta.counts.abdc.toLocaleString()} ABDC-rated · ${meta.counts.sjr ? meta.counts.sjr.toLocaleString() + " with SJR" : "SJR not loaded"} · data built ${meta.built.replace("T", " ")}${meta.vintage?.sjr ? ` · SJR ${meta.vintage.sjr}` : ""}`;
   $("#stat-journals").textContent = meta.counts.scopus.toLocaleString();
   $("#footer-sources").innerHTML = "Data: " + Object.values(meta.sources).filter((s) => !/not loaded/.test(s)).map(esc).join(" · ");
   $("#btn-match").disabled = false;

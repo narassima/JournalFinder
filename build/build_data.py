@@ -863,7 +863,7 @@ def build(args):
             st = s.get("summary_stats") or {}
             rec["ox"] = short_id(s["id"])
             # OpenAlex feeds the scope profile only (topics + works count for the thin-profile guard) and the
-            # journal's homepage link. Its citedness / h-index / APC / DOAJ / country values are NOT published:
+            # journal's homepage link (`url`) - the home-page link is deliberately retained. Its citedness / h-index / APC / DOAJ / country values are NOT published:
             # they cannot be checked against the ABDC, SCImago or Scopus files.
             rec["w"] = s.get("works_count") or 0
             if s.get("homepage_url"):
@@ -917,6 +917,7 @@ def build(args):
             "sjr": sum(1 for x in out if "sjr" in x),
             "openalex": matched_oa,
             "with_topics": sum(1 for x in out if "tp" in x),
+            "homepage_links": sum(1 for x in out if "url" in x),  # journal home-page link (kept on purpose)
         },
         "for_names": FOR_NAMES,
     }
