@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JournalScope — Find the right journal for your abstract</title>
+  <meta name="description" content="Paste your abstract and get ranked journal recommendations with justification based on journal scope, Scopus indexing, SCImago (SJR) metrics and the ABDC Journal Quality List." />
+  <meta name="theme-color" content="#0a0e1c" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%238b6cff'/><stop offset='1' stop-color='%2322d3ee'/></linearGradient></defs><circle cx='28' cy='28' r='18' fill='none' stroke='url(%23g)' stroke-width='7'/><path d='M41 41l13 13' stroke='url(%23g)' stroke-width='8' stroke-linecap='round'/></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="bg-orbs" aria-hidden="true"><span></span><span></span><span></span></div>
+
+  <header class="topbar">
+    <a class="brand" href="#" id="brand-home" aria-label="JournalScope home">
+      <svg viewBox="0 0 64 64" class="brand-mark" aria-hidden="true"><defs><linearGradient id="bm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8b6cff"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><circle cx="28" cy="28" r="18" fill="none" stroke="url(#bm)" stroke-width="7"/><path d="M41 41l13 13" stroke="url(#bm)" stroke-width="8" stroke-linecap="round"/></svg>
+      <span>Journal<b>Scope</b></span>
+    </a>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" id="tab-match" role="tab" data-view="match">Match abstract</button>
+      <button class="tab" id="tab-lookup" role="tab" data-view="lookup">Journal lookup</button>
+      <button class="tab" id="tab-shortlist" role="tab" data-view="shortlist">Shortlist <span class="pill" id="shortlist-count">0</span></button>
+    </nav>
+    <button class="icon-btn" id="btn-settings" title="AI settings" aria-label="AI settings">
+      <svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+    </button>
+  </header>
+
+  <main>
+    <!-- ===================== MATCH VIEW ===================== -->
+    <section class="view active" id="view-match" aria-labelledby="hero-title">
+      <div class="hero">
+        <h1 id="hero-title">Find the right journal for your <em>manuscript</em></h1>
+        <p class="lede">Paste your title and abstract. JournalScope compares it against the research scope of
+          <b id="stat-journals">30,000+</b> Scopus-indexed journals and explains every match using
+          <b>Scopus</b>, <b>SCImago (SJR)</b> and <b>ABDC 2025</b> data.</p>
+        <div class="data-status" id="data-status"><span class="spinner"></span> Loading journal database…</div>
+      </div>
+
+      <div class="layout">
+        <!-- -------- input panel -------- -->
+        <aside class="panel input-panel glass">
+          <form id="match-form" autocomplete="off">
+            <label class="field">
+              <span class="label">Manuscript title</span>
+              <input type="text" id="in-title" placeholder="e.g. Digital transformation and supply chain resilience in SMEs" />
+            </label>
+            <label class="field">
+              <span class="label">Abstract <span class="muted" id="word-count">0 words</span></span>
+              <textarea id="in-abstract" rows="10" placeholder="Paste your abstract here (150–300 words works best)…" required></textarea>
+            </label>
+            <label class="field">
+              <span class="label">Keywords <span class="muted">comma separated</span></span>
+              <input type="text" id="in-keywords" placeholder="supply chain resilience, digitalisation, SMEs" />
+            </label>
+
+            <details class="filters" id="filters" open>
+              <summary>Filters &amp; preferences</summary>
+
+              <div class="field">
+                <span class="label">Ranking emphasis</span>
+                <div class="slider-row">
+                  <span class="muted">Scope fit</span>
+                  <input type="range" id="in-weight" min="0" max="60" value="20" />
+                  <span class="muted">Prestige</span>
+                </div>
+              </div>
+
+              <div class="field">
+                <span class="label">ABDC rating</span>
+                <div class="chip-group" id="f-abdc">
+                  <label class="chip"><input type="checkbox" value="A*" /> A*</label>
+                  <label class="chip"><input type="checkbox" value="A" /> A</label>
+                  <label class="chip"><input type="checkbox" value="B" /> B</label>
+                  <label class="chip"><input type="checkbox" value="C" /> C</label>
+                  <label class="chip"><input type="checkbox" value="none" /> Not listed</label>
+                </div>
+              </div>
+
+              <div class="field">
+                <span class="label">SJR quartile</span>
+                <div class="chip-group" id="f-quartile">
+                  <label class="chip"><input type="checkbox" value="Q1" /> Q1</label>
+                  <label class="chip"><input type="checkbox" value="Q2" /> Q2</label>
+                  <label class="chip"><input type="checkbox" value="Q3" /> Q3</label>
+                  <label class="chip"><input type="checkbox" value="Q4" /> Q4</label>
+                </div>
+              </div>
+
+              <label class="field">
+                <span class="label">Scopus subject area</span>
+                <select id="f-area"><option value="">All subject areas</option></select>
+              </label>
+
+              <div class="toggles">
+                <label class="toggle"><input type="checkbox" id="f-scopus" checked /><span></span> Scopus-indexed only</label>
+                <label class="toggle"><input type="checkbox" id="f-oa" /><span></span> Open access only</label>
+                <label class="toggle"><input type="checkbox" id="f-noapc" /><span></span> Exclude journals with APC</label>
+              </div>
+            </details>
+
+            <div class="actions">
+              <button type="submit" class="btn primary" id="btn-match" disabled>
+                <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                Find journals
+              </button>
+              <button type="button" class="btn ghost" id="btn-sample">Try a sample</button>
+              <button type="button" class="btn ghost" id="btn-clear">Clear</button>
+            </div>
+          </form>
+        </aside>
+
+        <!-- -------- results -------- -->
+        <section class="results" id="results" aria-live="polite">
+          <div class="empty-state" id="empty-state">
+            <div class="empty-illus" aria-hidden="true">
+              <div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div>
+              <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>
+            </div>
+            <h2>How it works</h2>
+            <ol class="how">
+              <li><b>Scope mapping</b> — your text is matched to 4,500 research topics, then to journals that actually publish on those topics (OpenAlex publication profiles).</li>
+              <li><b>Quality signals</b> — SJR, quartile, H-index, citedness and the ABDC rating are added for each journal.</li>
+              <li><b>Justified ranking</b> — each recommendation explains the scope fit, metrics, ranking status and any cautions.</li>
+            </ol>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ===================== LOOKUP VIEW ===================== -->
+    <section class="view" id="view-lookup">
+      <div class="hero compact">
+        <h2 class="h1-like">Journal lookup</h2>
+        <p class="lede">Search any journal by title or ISSN to see its scope profile, metrics and ABDC status.</p>
+        <div class="search-box glass">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" id="lookup-q" placeholder="Journal title or ISSN, e.g. Journal of Operations Management or 0272-6963" />
+        </div>
+      </div>
+      <div class="lookup-results" id="lookup-results"></div>
+    </section>
+
+    <!-- ===================== SHORTLIST VIEW ===================== -->
+    <section class="view" id="view-shortlist">
+      <div class="hero compact">
+        <h2 class="h1-like">Your shortlist</h2>
+        <p class="lede">Journals you starred. Export as CSV or print a justification report for co-authors.</p>
+        <div class="actions center">
+          <button class="btn ghost" id="btn-export">Export CSV</button>
+          <button class="btn ghost" id="btn-print">Print report</button>
+          <button class="btn ghost danger" id="btn-clear-shortlist">Clear shortlist</button>
+        </div>
+      </div>
+      <div class="lookup-results" id="shortlist-results"></div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div id="footer-sources">Data sources loading…</div>
+    <p class="muted small">Recommendations are decision support, not a guarantee of acceptance. Always read the journal's
+      aims &amp; scope and author guidelines before submitting. The ABDC 2025 list shown is a <b>draft</b>. SJR data © SCImago (Scopus data);
+      topic profiles from OpenAlex (CC0).</p>
+  </footer>
+
+  <!-- ===================== SETTINGS MODAL ===================== -->
+  <dialog id="settings-modal" class="modal glass">
+    <form method="dialog" id="settings-form">
+      <h3>AI-written justifications <span class="pill">optional</span></h3>
+      <p class="muted">The built-in explanations work offline. Add a Google Gemini API key to also get a narrative
+        assessment of your top matches. The key is stored only in this browser (localStorage) and your abstract is
+        sent directly to Google — never to this site.</p>
+      <label class="field">
+        <span class="label">Gemini API key</span>
+        <input type="password" id="set-key" placeholder="AIza…" />
+      </label>
+      <label class="field">
+        <span class="label">Model</span>
+        <input type="text" id="set-model" placeholder="gemini-2.5-flash" />
+      </label>
+      <p class="small muted">Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>.</p>
+      <div class="actions">
+        <button class="btn primary" value="save" id="btn-save-settings">Save</button>
+        <button class="btn ghost" value="cancel" id="btn-cancel-settings">Cancel</button>
+        <button class="btn ghost danger" type="button" id="btn-forget-key">Forget key</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
