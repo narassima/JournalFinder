@@ -20,14 +20,13 @@ function journalBrief(engine, s, idx) {
     publisher: j.p,
     scope_topics_matching_abstract: topics,
     scopus_subjects: (j.a || []).slice(0, 3).map((c) => engine.asjc[c] || c),
-    abdc_2025_draft: j.ab ? (j.ab[0] === "X" ? `proposed removal (was ${j.ab[1]})` : j.ab[0]) : "not listed",
+    abdc_2025: j.ab ? (j.ab[0] === "X" ? `not on the 2025 list (was ${j.ab[1]} in 2022)` : j.ab[0]) : "not listed",
     abdc_2022: j.ab ? j.ab[1] : "not listed",
     sjr: j.sjr ?? null,
     sjr_quartile: j.q || null,
     h_index: j.h ?? null,
     citescore: j.cs ?? null,
-    open_access: !!(j.oa || j.doaj),
-    apc_usd: j.apc ?? null,
+    open_access: !!j.oa,
     scope_fit_0_100: Math.round(s.fitRel * 100),
   };
 }
@@ -38,7 +37,7 @@ export async function aiReview(engine, input, results, n = 10) {
   const shortlist = results.slice(0, n).map((s, i) => journalBrief(engine, s, i));
   const prompt = `You are an experienced journal editor and research-publishing advisor.
 An author wants to know where to submit the manuscript below. A retrieval system has shortlisted journals using
-journal scope profiles and metrics (Scopus/SCImago, ABDC Draft 2025 list). Assess each journal's fit for THIS manuscript.
+journal scope profiles and metrics (Scopus/SCImago, ABDC 2025 list). Assess each journal's fit for THIS manuscript.
 
 MANUSCRIPT
 Title: ${input.title || "(none)"}

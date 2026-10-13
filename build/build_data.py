@@ -77,6 +77,25 @@ FOR_NAMES = {
     "38": "Economics",
 }
 
+# OpenAlex returns ISO-3166 alpha-2 codes; SCImago spells country names out. Mapped to SCImago's spelling so the
+# Country field is uniform. Codes not listed (e.g. OpenAlex's "XR", "BL") are dropped rather than guessed.
+ISO2_COUNTRY = {
+    "AE": "United Arab Emirates", "AR": "Argentina", "AU": "Australia", "BA": "Bosnia and Herzegovina",
+    "BD": "Bangladesh", "BE": "Belgium", "BG": "Bulgaria", "BR": "Brazil", "CA": "Canada", "CH": "Switzerland",
+    "CL": "Chile", "CN": "China", "CO": "Colombia", "CU": "Cuba", "CY": "Cyprus", "CZ": "Czech Republic",
+    "DE": "Germany", "DZ": "Algeria", "EC": "Ecuador", "EE": "Estonia", "EG": "Egypt", "ES": "Spain",
+    "FI": "Finland", "FJ": "Fiji", "FR": "France", "GB": "United Kingdom", "GE": "Georgia", "GH": "Ghana",
+    "GR": "Greece", "HK": "Hong Kong", "HR": "Croatia", "HU": "Hungary", "ID": "Indonesia", "IE": "Ireland",
+    "IN": "India", "IQ": "Iraq", "IR": "Iran", "IT": "Italy", "JP": "Japan", "KE": "Kenya", "KR": "South Korea",
+    "LK": "Sri Lanka", "LT": "Lithuania", "LV": "Latvia", "MA": "Morocco", "ME": "Montenegro", "MK": "Macedonia",
+    "MX": "Mexico", "MY": "Malaysia", "NE": "Niger", "NG": "Nigeria", "NL": "Netherlands", "NO": "Norway",
+    "NZ": "New Zealand", "PE": "Peru", "PH": "Philippines", "PK": "Pakistan", "PL": "Poland", "PR": "Puerto Rico",
+    "PT": "Portugal", "RO": "Romania", "RS": "Serbia", "RU": "Russian Federation", "SA": "Saudi Arabia",
+    "SE": "Sweden", "SG": "Singapore", "SI": "Slovenia", "SK": "Slovakia", "TH": "Thailand", "TR": "Turkey",
+    "TZ": "Tanzania", "UA": "Ukraine", "US": "United States", "UY": "Uruguay", "VE": "Venezuela",
+    "VN": "Viet Nam", "ZA": "South Africa",
+}
+
 
 # ---------------------------------------------------------------- helpers
 def log(*a):
@@ -129,44 +148,87 @@ def clean(v) -> str:
 def load_scopus(path):
     log("Scopus:", os.path.basename(path))
     wb = openpyxl.load_workbook(path, read_only=True)
-    main = next(s for s in wb.sheetnames if s.lower().startswith("scopus sources"))
+    main = next((s for s in wb.sheetnames if s.lower().startswith("scopus sources")), wb.sheetnames[0])
     ws = wb[main]
     rows = ws.iter_rows(values_only=True)
     hdr = [clean(h).lower() for h in next(rows)]
 
-    def col(*keys):
+    def col(*keys, required=True):
         for i, h in enumerate(hdr):
             if all(k in h for k in keys):
                 return i
-        raise KeyError(keys)
+        if required:
+            raise KeyError(keys)
+        return None
+
+    def issn_col():  # "ISSN" (2026 list), "Print-ISSN" / "Print ISSN" (older / metrics editions)
+        return next((i for i, h in enumerate(hdr) if re.fullmatch(r"(print[- ]?)?issn", h)), None)
+
+    def eissn_col():
+        return next((i for i, h in enumerate(hdr) if re.fullmatch(r"(e[- ]?issn|eissn|online[- ]?issn)", h)), None)
 
     c = dict(
-        id=col("sourcerecord id"), title=col("source title"), issn=hdr.index("issn"), eissn=col("eissn"),
-        active=col("active or inactive"), coverage=col("coverage"), disc=col("discontinued"),
-        oa=col("open access"), type=col("source type"), pub=col("publisher"), asjc=col("classification codes"),
-        lang=col("article language"),
+        id=col("sourcerecord id"), title=col("source title"), issn=issn_col(), eissn=eissn_col(),
+        active=col("active or inactive", required=False), coverage=col("coverage", required=False),
+        disc=col("discontinued", required=False), oa=col("open access", required=False),
+        type=col("source type", required=False), pub=col("publisher", required=False),
+        asjc=col("classification codes", required=False), lang=col("article language", required=False),
     )
+    if c["issn"] is None:
+        raise KeyError("no ISSN column in the Scopus list")
+
+    def cell(r, k):
+        i = c[k]
+        return r[i] if i is not None and i < len(r) else None
+    # The title-list edition of the Scopus Source List carries no metrics. The edition downloaded from
+    # scopus.com/sources ("Download Scopus Source List") adds CiteScore / SNIP / SJR columns; pick them up
+    # when present so the same raw-file slot serves both.
+    mc = {}
+    for i, h in enumerate(hdr):
+        y = re.search(r"(20\d\d)", h)
+        yr = y.group(1) if y else ""
+        if "citescore" in h and not any(w in h for w in ("percentile", "rank", "tracker", "quartile")):
+            mc.setdefault("cs", (i, yr))
+        elif "highest percentile" in h or h == "percentile":
+            mc.setdefault("pct", (i, yr))
+        elif h.startswith("snip"):
+            mc.setdefault("snip", (i, yr))
+        elif h.startswith("sjr"):
+            mc.setdefault("sjr", (i, yr))
+        elif ("citation" in h and "count" in h) or h.startswith("citations"):
+            mc.setdefault("cit", (i, yr))
+        elif ("document" in h and "count" in h) or h.startswith("documents"):
+            mc.setdefault("doc", (i, yr))
     journals = {}
     for r in rows:
         if r[c["id"]] is None:
             continue
-        if clean(r[c["type"]]).lower() not in ("journal", "trade journal"):
+        # keep book series / other source types too: some ABDC titles are Scopus book series and must not be
+        # reported as "not in Scopus". Only journals and trade journals become recommendable records (see build()).
+        stype = clean(cell(r, "type")) or "Journal"
+        if stype.lower() not in ("journal", "trade journal", "book series"):
             continue
         sid = clean(r[c["id"]])
-        asjc = [a.strip() for a in re.split(r"[;,]", clean(r[c["asjc"]])) if a.strip().isdigit()]
+        asjc = [a.strip() for a in re.split(r"[;,]", clean(cell(r, "asjc"))) if a.strip().isdigit()]
+        met = {}
+        for k, (i, _y) in mc.items():
+            v = to_float(str(r[i]).replace("%", "")) if i < len(r) and r[i] is not None else None
+            if v is not None:
+                met[k] = v
         journals[sid] = dict(
+            metrics=met,
             sid=sid,
             title=clean(r[c["title"]]),
-            issn=norm_issn(r[c["issn"]]),
-            eissn=norm_issn(r[c["eissn"]]),
-            active=clean(r[c["active"]]).lower() == "active",
-            coverage=clean(r[c["coverage"]]),
-            discontinued=bool(clean(r[c["disc"]])),
-            oa=bool(clean(r[c["oa"]])),
-            publisher=clean(r[c["pub"]]),
+            issn=norm_issn(cell(r, "issn")),
+            eissn=norm_issn(cell(r, "eissn")),
+            active=(clean(cell(r, "active")).lower() == "active") if c["active"] is not None else True,
+            coverage=clean(cell(r, "coverage")),
+            discontinued=bool(clean(cell(r, "disc"))),
+            oa=bool(clean(cell(r, "oa"))),
+            publisher=clean(cell(r, "pub")),
             asjc=asjc,
-            lang=clean(r[c["lang"]]),
-            stype=clean(r[c["type"]]),
+            lang=clean(cell(r, "lang")),
+            stype=stype,
         )
     # Discontinued sheet (recent discontinuations)
     disc_sheet = next((s for s in wb.sheetnames if s.lower().startswith("discontinued")), None)
@@ -189,14 +251,138 @@ def load_scopus(path):
     wb.close()
     m = re.search(r"([A-Za-z]{3,9})[ ._-]*(20\d\d)", os.path.basename(path))
     version = f"{m.group(1).title()} {m.group(2)}" if m else os.path.basename(path)
-    log(f"  {len(journals):,} journal records, {len(disc_ids):,} recently discontinued, {len(asjc_names)} ASJC codes")
-    return journals, asjc_names, version
+    metrics_years = {k: y for k, (_i, y) in mc.items()}
+    log(f"  {len(journals):,} journal/book-series records, {len(disc_ids):,} recently discontinued, "
+        f"{len(asjc_names)} ASJC codes")
+    if metrics_years:
+        log(f"  metric columns found: {metrics_years} "
+            f"({sum(1 for j in journals.values() if j['metrics']):,} records with values)")
+    else:
+        log("  no metric columns in this Scopus list (title-list edition) - CiteScore/SNIP come from the "
+            "supplementary file or stay blank")
+    return journals, asjc_names, version, metrics_years
 
 
 # ---------------------------------------------------------------- ABDC
+_RANK = {"C": 1, "B": 2, "A": 3, "A*": 4}
+
+
+def _abdc_title_key(t: str) -> str:
+    t = re.sub(r"^the\s+", "", t.lower().replace("&", "and"))
+    return re.sub(r"[^a-z0-9]", "", t)
+
+
+def _read_abdc_sheet(ws):
+    """Rows of one ABDC edition sheet (title, publisher, issn, eissn, FoR, year, rating)."""
+    rows = list(ws.iter_rows(values_only=True))
+    hi = next((i for i, r in enumerate(rows[:40]) if "journal title" in [clean(x).lower() for x in r]), None)
+    if hi is None:
+        return []
+    hdr = [clean(x).lower() for x in rows[hi]]
+
+    def ci(*keys):
+        return next((i for i, h in enumerate(hdr) if all(k in h for k in keys)), None)
+
+    c_title, c_pub, c_issn = ci("journal title"), ci("publisher"), ci("issn")
+    c_eissn = ci("issnonline") if ci("issnonline") is not None else ci("online")
+    c_for = ci("for") if ci("for") is not None else ci("field of research")
+    c_year, c_rate = ci("inception"), ci("rating")
+    out = []
+    for r in rows[hi + 1:]:
+        if c_title is None or not r[c_title] or c_rate is None:
+            continue
+        rating = clean(r[c_rate]).upper().replace(" ", "")
+        forc = clean(r[c_for]) if c_for is not None else ""
+        out.append(dict(
+            title=clean(r[c_title]),
+            publisher=clean(r[c_pub]) if c_pub is not None else "",
+            issn=norm_issn(r[c_issn]) if c_issn is not None else "",
+            eissn=norm_issn(r[c_eissn]) if c_eissn is not None else "",
+            for_code=forc[:-2] if forc.endswith(".0") else forc,
+            year=clean(r[c_year]) if c_year is not None else "",
+            rating=rating if rating in _RANK or rating == "A*" else "",
+        ))
+    return out
+
+
+def _load_abdc_final(wb, path):
+    """Final ABDC list layout: '2025 JQL' (2025 rating) + '2022 JQL' (2022 rating) sheets, no removal sheet.
+    The 2022 rating is joined from the 2022 sheet; journals in the 2022 list that have no counterpart in the
+    2025 list are reported as removed; the change note is derived from the two ratings."""
+    new = _read_abdc_sheet(wb["2025 JQL"])
+    old = _read_abdc_sheet(wb["2022 JQL"])
+    # 2022 -> 2025 matching: exact normalised title first, then ISSN / eISSN, one-to-one
+    by_title = {}
+    for o in old:
+        by_title.setdefault(_abdc_title_key(o["title"]), []).append(o)
+    by_issn = {}
+    for o in old:
+        for k in (o["issn"], o["eissn"]):
+            if k:
+                by_issn.setdefault(k, []).append(o)
+    used = set()
+    pairs = {}
+    for pass_no in (1, 2, 3):
+        for i, a in enumerate(new):
+            if i in pairs:
+                continue
+            nk = _abdc_title_key(a["title"])
+            if pass_no == 1:
+                cands = by_title.get(nk, [])
+            elif pass_no == 2:
+                cands = [o for k in (a["issn"], a["eissn"]) if k for o in by_issn.get(k, [])]
+            else:
+                # renamed titles that also changed ISSN (e.g. "The Economics of Transition" ->
+                # "Economics of Transition and Institutional Change"): one title key extends the other
+                cands = [o for o in old if id(o) not in used
+                         and min(len(nk), len(_abdc_title_key(o["title"]))) >= 15
+                         and (nk.startswith(_abdc_title_key(o["title"])) or _abdc_title_key(o["title"]).startswith(nk))]
+            for o in cands:
+                if id(o) not in used:
+                    used.add(id(o))
+                    pairs[i] = o
+                    break
+    out = []
+    n_up = n_down = n_new = 0
+    for i, a in enumerate(new):
+        o = pairs.get(i)
+        r22 = o["rating"] if o else ""
+        if not o:
+            rec = "New inclusion"
+            n_new += 1
+        elif _RANK.get(a["rating"], 0) > _RANK.get(r22, 0):
+            rec, n_up = "Upgrade", n_up + 1
+        elif _RANK.get(a["rating"], 0) < _RANK.get(r22, 0):
+            rec, n_down = "Downgrade", n_down + 1
+        else:
+            rec = "No change"
+        out.append(dict(title=a["title"], publisher=a["publisher"], issn=a["issn"], eissn=a["eissn"],
+                        for_code=a["for_code"], year=a["year"], r2022=r22, r2025=a["rating"], rec=rec,
+                        removed=False))
+    removed = [o for o in old if id(o) not in used]
+    for o in removed:
+        out.append(dict(title=o["title"], publisher=o["publisher"], issn=o["issn"], eissn=o["eissn"],
+                        for_code=o["for_code"], year=o["year"], r2022=o["rating"], r2025="",
+                        rec="Removed in 2025 review", removed=True))
+    m = re.search(r"(\d{4})-v(\d+)-(\d{2})(\d{2})(\d{2})", os.path.basename(path))
+    if m:
+        mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][int(m.group(4)) - 1]
+        version = f"{m.group(1)} ABDC Journal Quality List (final v{m.group(2)}, {int(m.group(3))} {mon} 20{m.group(5)})"
+    else:
+        version = "2025 ABDC Journal Quality List (final)"
+    log(f"  FINAL list: {len(new):,} journals rated; vs 2022: {n_up} upgrades, {n_down} downgrades, "
+        f"{n_new} new inclusions, {len(removed)} removed")
+    return out, version
+
+
 def load_abdc(path):
     log("ABDC:", os.path.basename(path))
     wb = openpyxl.load_workbook(path, read_only=True)
+    if "2025 JQL" in wb.sheetnames and "2022 JQL" in wb.sheetnames and not any(
+            "removed" in s.lower() for s in wb.sheetnames):
+        res = _load_abdc_final(wb, path)
+        wb.close()
+        return res
     out = []
     version = "ABDC JQL"
     for sname in wb.sheetnames:
@@ -267,11 +453,15 @@ def load_scimago(path):
         f.seek(0)
         delim = ";" if sample.count(";") > sample.count(",") else ","
         rd = csv.DictReader(f, delimiter=delim)
+        # edition year = the year in "Total Docs. (2025)"; the file name carries no year
+        edition = next((m.group(1) for k in (rd.fieldnames or [])
+                        for m in [re.match(r"total docs\. \((20\d\d)\)", k.strip().lower())] if m), None)
         out = {}
         for r in rd:
             r = {(k or "").strip(): (v or "").strip() for k, v in r.items()}
             sid = r.get("Sourceid") or r.get("Source ID") or ""
-            cites2 = next((v for k, v in r.items() if k.lower().startswith("citations / doc")), "")
+            # header is "Citations / Doc. (2years)" in the 2025 export, "Cites / Doc. (2years)" in 2023
+            cites2 = next((v for k, v in r.items() if re.match(r"(citations|cites)\s*/\s*doc", k.lower())), "")
             docs = next((v for k, v in r.items() if k.lower().startswith("total docs. (20")), "")
             cats = []
             for part in (r.get("Categories") or "").split(";"):
@@ -292,9 +482,11 @@ def load_scimago(path):
                 areas=r.get("Areas", ""),
                 issns=[norm_issn(x) for x in (r.get("Issn") or "").split(",") if norm_issn(x)],
             )
-    m = re.search(r"(20\d\d)", os.path.basename(path))
-    log(f"  {len(out):,} SCImago records")
-    return out, (f"SJR {m.group(1)}" if m else "SJR (latest)")
+    if not edition:
+        m = re.search(r"(20\d\d)", os.path.basename(path))
+        edition = m.group(1) if m else None
+    log(f"  {len(out):,} SCImago records, edition {edition or 'unknown'}")
+    return out, (f"SJR {edition}" if edition else "SJR (edition unknown)")
 
 
 # ---------------------------------------------------------------- CiteScore (optional)
@@ -337,8 +529,10 @@ def load_citescore(path):
             rec["pct"] = to_float(r[c_pct])
         if c_snip is not None and to_float(r[c_snip]) is not None:
             rec["snip"] = to_float(r[c_snip])
-        if c_wos is not None and clean(r[c_wos]):
-            rec["wos"] = clean(r[c_wos])
+        # The WoS column holds either "WoS" or "Not in Wos"; only the former is an indexing flag.
+        # (Storing any non-empty text made every listed journal look WoS-indexed.)
+        if c_wos is not None and clean(r[c_wos]).lower() in ("wos", "yes", "y", "indexed"):
+            rec["wos"] = "WoS"
 
         if not rec:
             continue
@@ -352,6 +546,14 @@ def load_citescore(path):
 
     log(f"  {len(out):,} CiteScore / metrics records")
     return out
+
+
+def legacy_citescore_year(path):
+    """CiteScore year of a supplementary list that has no year in it. CiteScore Y is published in June of Y+1,
+    so a file compiled before June holds CiteScore (year-2), one compiled from June on holds (year-1).
+    Inferred from the file's modification date - reported as such in meta.json."""
+    t = dt.datetime.fromtimestamp(os.path.getmtime(path))
+    return t.year - 1 if t.month >= 6 else t.year - 2
 
 
 # ---------------------------------------------------------------- OpenAlex
@@ -469,10 +671,20 @@ def build(args):
     sjr_path = find_one(["*scimago*.csv", "scimagojr*.csv", "*sjr*.csv"], required=False)
     cs_path = find_one(["*citescore*.xlsx", "*citescore*.csv"], required=False)
 
-    scopus, asjc_names, scopus_ver = load_scopus(scopus_path)
+    scopus, asjc_names, scopus_ver, scopus_metric_years = load_scopus(scopus_path)
     abdc, abdc_ver = load_abdc(abdc_path)
     sjr, sjr_ver = load_scimago(sjr_path)
+    # The supplementary master list holds an old CiteScore and a WoS flag that cannot be re-validated against a
+    # current source, so it is NOT used unless explicitly requested (--use-legacy-list). Only values traceable to
+    # the ABDC list, the SCImago export and the Scopus Source List are published.
+    if cs_path and not getattr(args, "use_legacy_list", False):
+        log(f"Supplementary list {os.path.basename(cs_path)} found but NOT used (unvalidated CiteScore/WoS); "
+            "pass --use-legacy-list to include it")
+        cs_path = None
     cites = load_citescore(cs_path)
+    sjr_year = (re.search(r"(20\d\d)", sjr_ver or "") or [None, None])[1]
+    cs_legacy_year = legacy_citescore_year(cs_path) if cs_path else None
+    cs_list_date = (dt.datetime.fromtimestamp(os.path.getmtime(cs_path)).strftime("%b %Y") if cs_path else None)
 
     # Keep active Scopus journals (+ inactive ones that are ABDC listed, flagged)
     issn_to_sid = {}
@@ -484,10 +696,16 @@ def build(args):
         if sid in scopus:
             for i in s["issns"]:
                 issn_to_sid.setdefault(i, sid)
+    # SCImago record for any ISSN (lets ABDC-only titles that are not in the Scopus list still pick up SJR)
+    sjr_by_issn = {}
+    for sid, s in sjr.items():
+        for i in s["issns"]:
+            sjr_by_issn.setdefault(i, sid)
 
     records = {}
     for sid, j in scopus.items():
-        if j["active"] and not j["discontinued"]:
+        # only journals / trade journals are recommendable; book series enter only through an ABDC listing
+        if j["active"] and not j["discontinued"] and j["stype"].lower() in ("journal", "trade journal"):
             records[sid] = dict(j, scopus=True)
 
     # attach ABDC
@@ -503,6 +721,15 @@ def build(args):
 
     abdc_only = 0
     title_joined = 0
+    collisions = 0
+
+    def abdc_only_record(a):
+        return records.setdefault("abdc:" + tkey(a["title"]) + a["issn"] + a["eissn"], dict(
+            sid="", title=a["title"], issn=a["issn"], eissn=a["eissn"], active=False, coverage="",
+            discontinued=False, oa=False, publisher=a["publisher"], asjc=[], lang="", stype="Journal",
+            scopus=False, metrics={},
+        ))
+
     for a in abdc:
         sid = issn_to_sid.get(a["issn"]) or issn_to_sid.get(a["eissn"])
         if not sid:
@@ -514,19 +741,26 @@ def build(args):
             if rec is None:  # inactive / discontinued in Scopus but ABDC-listed -> keep, flagged
                 rec = records[sid] = dict(scopus[sid], scopus=True)
         else:
-            key = "abdc:" + (a["issn"] or a["eissn"] or a["title"])
-            rec = records.setdefault(key, dict(
-                sid="", title=a["title"], issn=a["issn"], eissn=a["eissn"], active=False, coverage="",
-                discontinued=False, oa=False, publisher=a["publisher"], asjc=[], lang="", stype="Journal",
-                scopus=False,
-            ))
+            rec = abdc_only_record(a)
             abdc_only += 1
-        # prefer listed over removed record
-        if "abdc" in rec and not rec["abdc"]["removed"] and a["removed"]:
-            continue
+        prev = rec.get("abdc")
+        if prev is not None:
+            if not prev["removed"] and a["removed"]:
+                continue  # keep the listed rating over a removal note
+            if not prev["removed"] and not a["removed"]:
+                # two live ABDC rows resolved to one source record (a reused / shared ISSN): the row whose
+                # title matches the source record keeps it, the other becomes a record of its own
+                collisions += 1
+                if tkey(a["title"]) != tkey(rec["title"]):
+                    abdc_only_record(a)["abdc"] = a
+                    abdc_only += 1
+                    continue
+                loser = abdc_only_record(prev)
+                loser["abdc"] = prev
+                abdc_only += 1
         rec["abdc"] = a
     log(f"Merged: {len(records):,} journals ({title_joined} ABDC joined by title; "
-        f"{abdc_only:,} ABDC journals not found in Scopus list)")
+        f"{abdc_only:,} ABDC journals not found in Scopus list; {collisions} shared-ISSN collisions split)")
 
     # OpenAlex
     want = set()
@@ -562,11 +796,12 @@ def build(args):
     # final compact records
     out = []
     matched_oa = 0
+    used_scopus_cs = bool(scopus_metric_years.get("cs"))  # Scopus list carries its own CiteScore
     for key, r in records.items():
         s = oa_by_issn.get(r["issn"]) or oa_by_issn.get(r["eissn"])
         rec = {
             "t": r["title"],
-            "p": r["publisher"] or (s or {}).get("host_organization_name") or "",
+            "p": r["publisher"] or "",
             "i": hyphen(r["issn"]) if r["issn"] else "",
             "e": hyphen(r["eissn"]) if r["eissn"] else "",
         }
@@ -583,48 +818,56 @@ def build(args):
             a = r["abdc"]
             rec["ab"] = [a["r2025"] or "-", a["r2022"] or "-", a["for_code"], a["rec"] if a["rec"] else ""]
             if a["removed"]:
-                rec["ab"][0] = "X"  # proposed for removal
+                rec["ab"][0] = "X"  # in the 2022 list, not in the 2025 list
         sj = sjr.get(r.get("sid") or "")
+        if sj is None:  # title without a Scopus id (or id unknown to SCImago): fall back to ISSN
+            sj = sjr.get(sjr_by_issn.get(r["issn"]) or sjr_by_issn.get(r["eissn"]) or "")
         if sj:
             rec["sjr"] = round(sj["sjr"], 3) if sj["sjr"] is not None else None
             rec["q"] = sj["q"]
             if sj["h"]:
-                rec["h"] = sj["h"]
+                rec["h"] = sj["h"]  # SCImago h-index only; never mixed with the OpenAlex one (see "hx")
             if sj["cpd"] is not None:
                 rec["cpd"] = round(sj["cpd"], 2)
             if sj["cats"]:
                 rec["cat"] = sj["cats"][:6]
             if sj["country"]:
                 rec["c"] = sj["country"]
+        # CiteScore / percentile / SNIP: the Scopus Source List's own metric columns win when present,
+        # otherwise the supplementary master list (older) fills in.
+        sm = r.get("metrics") or {}
         cs = (cites.get(r.get("sid") or "") or
               cites.get("issn:" + r.get("issn", "")) or
               cites.get("issn:" + r.get("eissn", "")))
         if cs:
-            if cs.get("cs") is not None:
-                rec["cs"] = cs["cs"]
-            if cs.get("pct") is not None:
-                rec["csp"] = cs["pct"]
-            if cs.get("snip") is not None:
-                rec["snip"] = cs["snip"]
+            if not used_scopus_cs:  # never mix the legacy CiteScore into a list that has the current one
+                if cs.get("cs") is not None:
+                    rec["cs"] = cs["cs"]
+                if cs.get("pct") is not None:
+                    rec["csp"] = cs["pct"]
+                if cs.get("snip") is not None:
+                    rec["snip"] = cs["snip"]
             if cs.get("wos"):
                 rec["wos"] = cs["wos"]
+        if sm:
+            if sm.get("cs") is not None:
+                rec["cs"] = round(sm["cs"], 1)
+            if sm.get("pct") is not None:
+                rec["csp"] = round(sm["pct"], 0)
+            if sm.get("snip") is not None:
+                rec["snip"] = round(sm["snip"], 3)
+            if sm.get("sjr") is not None and "sjr" not in rec:
+                rec["sjr"] = round(sm["sjr"], 3)
         if s:
             matched_oa += 1
             st = s.get("summary_stats") or {}
             rec["ox"] = short_id(s["id"])
-            if st.get("2yr_mean_citedness") is not None:
-                rec["m2"] = round(st["2yr_mean_citedness"], 2)
-            if st.get("h_index") and "h" not in rec:
-                rec["h"] = st["h_index"]
+            # OpenAlex feeds the scope profile only (topics + works count for the thin-profile guard) and the
+            # journal's homepage link. Its citedness / h-index / APC / DOAJ / country values are NOT published:
+            # they cannot be checked against the ABDC, SCImago or Scopus files.
             rec["w"] = s.get("works_count") or 0
-            if s.get("apc_usd"):
-                rec["apc"] = s["apc_usd"]
-            if s.get("is_in_doaj"):
-                rec["doaj"] = 1
             if s.get("homepage_url"):
                 rec["url"] = s["homepage_url"]
-            if s.get("country_code") and "c" not in rec:
-                rec["c"] = s["country_code"]
             tl = []
             for t in (s.get("topics") or []):
                 ti = topic_index.get(t["id"])
@@ -643,6 +886,16 @@ def build(args):
             json.dump(obj, f, ensure_ascii=False, separators=(",", ":"))
         log(f"  wrote {name}: {os.path.getsize(p) / 1e6:.2f} MB")
 
+    # Year/edition of every displayed metric, so the app can label values instead of calling them "latest".
+    my = scopus_metric_years
+    vintage = {
+        "sjr": sjr_year, "q": sjr_year, "h": sjr_year, "cpd": sjr_year,
+        "cs": (my.get("cs") or None) if used_scopus_cs else (str(cs_legacy_year) if cs_path and cs_legacy_year else None),
+        "csp": (my.get("pct") or my.get("cs") or None) if used_scopus_cs else None,
+        "snip": my.get("snip") or None,
+        "wos": cs_list_date if cs_path else None,
+        "abdc": "2025 final" if "final" in (abdc_ver or "").lower() else "2025 draft",
+    }
     meta = {
         "built": dt.datetime.now().isoformat(timespec="minutes"),
         "sources": {
@@ -650,8 +903,13 @@ def build(args):
             "abdc": abdc_ver,
             "sjr": sjr_ver or "not loaded",
             "openalex": f"OpenAlex (fetched {dt.date.today().isoformat()})",
-            "citescore": os.path.basename(cs_path) if cs_path else "not loaded",
+            "citescore": (f"Scopus Source List metrics ({my.get('cs') or 'year n/a'})" if used_scopus_cs else
+                          (f"{os.path.basename(cs_path)} - CiteScore {cs_legacy_year} (inferred from file date "
+                           f"{cs_list_date}); WoS flag as of that list" if cs_path else "not loaded")),
+            "wos": "not loaded",
         },
+        "vintage": vintage,
+        "abdc_final": "final" in (abdc_ver or "").lower(),
         "counts": {
             "journals": len(out),
             "scopus": sum(1 for x in out if "s" in x),
@@ -674,4 +932,6 @@ if __name__ == "__main__":
     ap.add_argument("--offline", action="store_true", help="never call OpenAlex; use cache only")
     ap.add_argument("--refresh-openalex", action="store_true", help="ignore OpenAlex cache")
     ap.add_argument("--max-new", type=int, default=None, help="limit number of new ISSNs to query from OpenAlex in this run")
+    ap.add_argument("--use-legacy-list", action="store_true",
+                    help="also use the supplementary *citescore*.xlsx (old CiteScore + WoS flag) - unvalidated, off by default")
     build(ap.parse_args())

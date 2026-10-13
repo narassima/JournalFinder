@@ -2,10 +2,10 @@
 
 An intelligent academic journal recommendation web application built for researchers. Paste your title and abstract to receive ranked, justified journal recommendations based on:
 - **Journal Scope & Aims**: Mapped via OpenAlex research topic taxonomy (~4,500 topics and journal publication shares).
-- **ABDC Journal Quality List**: 2025 Draft List ratings (`A*`, `A`, `B`, `C`), 2022 ratings, ANZSRC Field-of-Research codes, and change notes.
-- **Scopus Indexing & Metrics**: Active/discontinued status, ASJC subject classifications, CiteScore, and SNIP.
-- **SCImago Journal Rank (SJR)**: SJR score, Best Quartile (`Q1`–`Q4`), H-index, and subject categories.
-- **Web of Science (WoS)**: Indexing indicators where available.
+- **ABDC Journal Quality List**: 2025 final-list ratings (`A*`, `A`, `B`, `C`), 2022 ratings, ANZSRC Field-of-Research codes, and derived change notes (upgrade / downgrade / new / removed).
+- **Scopus Source List**: Active/inactive/discontinued status, ASJC subject classifications, open-access status. CiteScore / SNIP appear only when the Scopus *Source List with metrics* is supplied.
+- **SCImago Journal Rank (SJR)**: SJR score, Best Quartile (`Q1`–`Q4`), H-index, citations per document and subject categories — edition year shown on every card.
+- **Validated-only policy**: the app shows a value only if it traces to the ABDC list, the SCImago export or the Scopus Source List. Anything else (old CiteScore, WoS flag, OpenAlex citedness / h-index / APC) is not published. Each card links to the Scopus, SCImago and ABDC pages so users can check every number.
 
 ---
 
@@ -67,11 +67,16 @@ Open **[http://localhost:8080](http://localhost:8080)** in your browser.
 
 The pipeline script is in [`build/build_data.py`](file:///C:/Users/narassima.s/.gemini/antigravity-ide/scratch/journal-finder/build/build_data.py).
 
-Raw files are placed in [`data/raw/`](file:///C:/Users/narassima.s/.gemini/antigravity-ide/scratch/journal-finder/data/raw/):
-- `abdc_2025_draft.xlsx`: ABDC Draft List 2025
-- `scopus_sources_sep2026.xlsx`: Scopus Source List
-- `scimago.csv`: SCImago Journal Rank export
-- `citescore_abdc_wos.xlsx`: Supplementary CiteScore / WoS master list
+Raw files are placed in [`data/raw/`](file:///C:/Users/narassima.s/.gemini/antigravity-ide/scratch/journal-finder/data/raw/). The build finds each by file-name pattern and uses the newest match; older editions go in `data/raw/superseded/`.
+
+| Slot | File-name pattern | What it must be | Source |
+|---|---|---|---|
+| ABDC | `*abdc*.xlsx` | The **final** list workbook (sheets `2025 JQL` + `2022 JQL`), e.g. `ABDC-JQL-2025-v3-210926.xlsx`. The draft layout (`Removed journals` sheet) is still read if supplied. | abdc.edu.au → ABDC Journal Quality List → Downloads |
+| SCImago | `*scimago*.csv` | The `journalrank` export for the latest year (SJR, quartile, H-index, categories, citations/doc). The edition year is read from the `Total Docs. (YYYY)` column. | scimagojr.com → Journal Rankings → Download data |
+| Scopus | `*scopus*source*.xlsx` | The **Source List with metrics** (CiteScore, highest percentile, SNIP, SJR) from `scopus.com/sources` → *Download Scopus Source List* (needs a Scopus sign-in). The title-list edition from elsevier.com is accepted too but has **no** CiteScore/SNIP. | scopus.com/sources |
+| Legacy list (off) | `*citescore*.xlsx` | Old CiteScore + WoS flag. **Ignored by default** because it cannot be validated; enable with `--use-legacy-list` only if you accept an old edition (it is then labelled with its inferred year). | — |
+
+Every metric shown in the app carries its edition year (taken from `meta.json` → `vintage`), so a stale file shows up as, e.g., "CiteScore 2021" rather than passing for current.
 
 To rebuild the dataset:
 ```bash
@@ -82,7 +87,7 @@ python build/build_data.py --offline
 python build/build_data.py
 ```
 Outputs are written directly to `docs/data/`:
-- `journals.json`: Compact JSON records for 31,000+ journals.
+- `journals.json`: Compact JSON records for 31,000+ journals (`h` = SCImago h-index, `hx` = OpenAlex h-index, never mixed).
 - `topics.json`: Topic taxonomy and keyword vocabulary.
 - `asjc.json`: ASJC classification codes and subject areas.
-- `meta.json`: Build metadata, timestamp, and source counts.
+- `meta.json`: Build metadata, timestamp, source counts, and the per-metric `vintage` (edition year) shown in the UI.

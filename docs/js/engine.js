@@ -57,18 +57,16 @@ export class Engine {
   }
 
   #indexJournals() {
-    const sjrs = [], m2s = [];
+    const sjrs = [];
     for (const j of this.J) {
       if (j.tp) {
         j._tot = j.tp.reduce((s, x) => s + x[1], 0);
       }
       j._tt = tokens(j.t);
       if (j.sjr != null) sjrs.push(j.sjr);
-      if (j.m2 != null) m2s.push(j.m2);
       j._key = (j.t + " " + (j.i || "") + " " + (j.e || "")).toLowerCase();
     }
     sjrs.sort((a, b) => a - b);
-    m2s.sort((a, b) => a - b);
     const pct = (arr, v) => {
       let lo = 0, hi = arr.length;
       while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid] < v) lo = mid + 1; else hi = mid; }
@@ -76,7 +74,6 @@ export class Engine {
     };
     for (const j of this.J) {
       if (j.sjr != null) j._sjrPct = pct(sjrs, j.sjr);
-      if (j.m2 != null) j._m2Pct = pct(m2s, j.m2);
       j._prestige = this.prestige(j);
     }
   }
@@ -89,8 +86,7 @@ export class Engine {
     add(ab, 0.35);
     add(Q_SCORE[j.q], 0.25);
     add(j._sjrPct, 0.2);
-    add(j.csp != null ? j.csp / 100 : null, 0.2);
-    add(j._m2Pct, j._sjrPct != null ? 0.1 : 0.3);
+    add(j.csp != null ? j.csp / 100 : null, 0.2); // only present when the Scopus list supplied CiteScore
     return w ? s / w : 0.2;
   }
 
@@ -202,8 +198,7 @@ export class Engine {
 
   passes(j, f) {
     if (f.scopusOnly && !j.s) return false;
-    if (f.oa && !(j.oa || j.doaj)) return false;
-    if (f.noApc && j.apc) return false;
+    if (f.oa && !j.oa) return false;
     if (f.abdc && f.abdc.size) {
       const r = j.ab && j.ab[0] !== "X" && j.ab[0] !== "-" ? j.ab[0] : "none";
       if (!f.abdc.has(r)) return false;

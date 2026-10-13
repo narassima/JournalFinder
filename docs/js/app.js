@@ -1,5 +1,5 @@
 import { Engine } from "./engine.js";
-import { explain, esc, fitLabel, cautions, plainSummary } from "./explain.js";
+import { explain, esc, fitLabel, cautions, plainSummary, verifyUrls } from "./explain.js";
 import { aiSettings, aiReview, DEFAULT_MODEL } from "./ai.js";
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -129,7 +129,6 @@ function readFilters() {
     area: +$("#f-area").value || 0,
     scopusOnly: $("#f-scopus").checked,
     oa: $("#f-oa").checked,
-    noApc: $("#f-noapc").checked,
   };
 }
 
@@ -190,27 +189,30 @@ const idOf = (j) => (j.s || j.i || j.e || j.t).replace(/[^A-Za-z0-9]/g, "");
 
 function badgesHTML(j, tier) {
   const b = [];
+  const M = state.engine.meta;
+  const fin = !!M.abdc_final;
+  const vy = (k) => (M.vintage?.[k] ? ` ${M.vintage[k]}` : ""); // edition year of a metric, e.g. " 2025"
   if (tier) b.push(`<span class="badge tier tier-${tier}">${tier}</span>`);
   if (j.ab) {
     const r = j.ab[0];
-    if (r === "X") b.push(`<span class="badge abdc-X" title="Proposed for removal in Draft 2025">ABDC ${esc(j.ab[1])} → removal</span>`);
-    else if (r !== "-") b.push(`<span class="badge abdc-${r === "A*" ? "As" : r}" title="ABDC Draft 2025 rating">ABDC <b>${r}</b>${j.ab[1] && j.ab[1] !== r && j.ab[1] !== "-" ? ` <span class="muted">(was ${j.ab[1]})</span>` : ""}</span>`);
+    if (r === "X") b.push(`<span class="badge abdc-X" title="${fin ? "Rated " + esc(j.ab[1]) + " in 2022; not on the 2025 ABDC list" : "Proposed for removal in Draft 2025"}">ABDC ${esc(j.ab[1])} → ${fin ? "removed" : "removal"}</span>`);
+    else if (r !== "-") b.push(`<span class="badge abdc-${r === "A*" ? "As" : r}" title="${fin ? "ABDC 2025 rating (final list)" : "ABDC Draft 2025 rating"}">ABDC <b>${r}</b>${j.ab[1] && j.ab[1] !== r && j.ab[1] !== "-" ? ` <span class="muted">(was ${j.ab[1]})</span>` : ""}</span>`);
   }
-  if (j.q) b.push(`<span class="badge ${j.q.toLowerCase()}">SJR <b>${j.q}</b>${j.sjr != null ? ` · ${j.sjr.toFixed(2)}` : ""}</span>`);
-  if (j.cs != null) b.push(`<span class="badge">CiteScore <b>${j.cs}</b></span>`);
-  if (j.wos) b.push(`<span class="badge wos" title="Indexed in Web of Science">WoS</span>`);
-  if (j.h) b.push(`<span class="badge">h <b>${j.h}</b></span>`);
+  if (j.q) b.push(`<span class="badge ${j.q.toLowerCase()}" title="SCImago Journal Rank${vy("sjr")}: best quartile and SJR value">SJR${vy("sjr")} <b>${j.q}</b>${j.sjr != null ? ` · ${j.sjr.toFixed(2)}` : ""}</span>`);
+  if (j.cs != null) b.push(`<span class="badge" title="Scopus CiteScore${vy("cs")}">CiteScore${vy("cs")} <b>${j.cs}</b></span>`);
+  if (j.h) b.push(`<span class="badge" title="h-index (SCImago${vy("h")})">h <b>${j.h}</b></span>`);
   if (j.s) b.push(`<span class="badge scopus" title="Listed in the Scopus Source List">Scopus${j.inact ? " (inactive)" : ""}</span>`);
   else b.push(`<span class="badge warn">Not in Scopus</span>`);
-  if (j.oa || j.doaj) b.push(`<span class="badge oa">Open access${j.apc ? ` · $${j.apc.toLocaleString()}` : ""}</span>`);
+  if (j.oa) b.push(`<span class="badge oa" title="Open access status in the Scopus Source List">Open access</span>`);
   return b.join("");
 }
 
 function linksHTML(j) {
   const l = [];
   if (j.url) l.push(`<a href="${esc(j.url)}" target="_blank" rel="noopener">Journal site ↗</a>`);
-  if (j.s) l.push(`<a href="https://www.scopus.com/sourceid/${j.s}" target="_blank" rel="noopener">Scopus ↗</a>`);
-  if (j.s) l.push(`<a href="https://www.scimagojr.com/journalsearch.php?q=${j.s}&tip=sid" target="_blank" rel="noopener">SCImago ↗</a>`);
+  const u = verifyUrls(j);
+  if (u.scopus) l.push(`<a href="${u.scopus}" target="_blank" rel="noopener">Scopus ↗</a>`);
+  if (u.scimago) l.push(`<a href="${u.scimago}" target="_blank" rel="noopener">SCImago ↗</a>`);
   if (j.ox) l.push(`<a href="https://openalex.org/S${j.ox}" target="_blank" rel="noopener">OpenAlex ↗</a>`);
   return l.join("");
 }
@@ -263,6 +265,7 @@ function cardHTML(s, rank, ctx, aiNote) {
           <div class="why-block">
             <h5>Journal metrics</h5>
             <dl class="kv">${x.kv.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
+            <p class="muted small verify">${x.sourceNote}<br>${x.verify}</p>
           </div>
           <div class="why-block ${x.cautions.length ? "" : "full"}">
             <h5>Ranking status</h5>
@@ -300,7 +303,7 @@ function profileCardHTML(j, rank, saved) {
         <summary>Scope profile, metrics &amp; ranking</summary>
         <div class="why-grid">
           <div class="why-block"><h5>What it publishes (OpenAlex topics)</h5>${topicBars(rows)}</div>
-          <div class="why-block"><h5>Journal metrics</h5><dl class="kv">${x.kv.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl></div>
+          <div class="why-block"><h5>Journal metrics</h5><dl class="kv">${x.kv.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl><p class="muted small verify">${x.sourceNote}<br>${x.verify}</p></div>
           <div class="why-block ${x.cautions.length ? "" : "full"}"><h5>Ranking status</h5>${x.rankingHtml}</div>
           ${x.cautions.length ? `<div class="why-block"><h5>Cautions</h5><ul class="cautions">${x.cautions.map((c) => `<li>${esc(c)}</li>`).join("")}</ul></div>` : ""}
         </div>
@@ -351,11 +354,12 @@ function renderShortlist() {
 }
 
 function exportCSV() {
-  const rows = [["Journal", "Publisher", "ISSN", "eISSN", "ABDC 2025 (draft)", "ABDC 2022", "FoR", "SJR", "SJR quartile", "H-index", "CiteScore", "Scopus", "Open access", "APC USD", "Justification", "Journal URL"]];
+  const v = (k) => (state.engine.meta.vintage?.[k] ? ` ${state.engine.meta.vintage[k]}` : "");
+  const rows = [["Journal", "Publisher", "ISSN", "eISSN", `ABDC 2025${state.engine.meta.abdc_final ? "" : " (draft)"}`, "ABDC 2022", "FoR", `SJR${v("sjr")}`, `SJR quartile${v("q")}`, `H-index (SCImago${v("h")})`, "Scopus", "Open access (Scopus list)", "Scopus page", "SCImago page", "Justification", "Journal URL"]];
   for (const [id, saved] of state.shortlist) {
     const j = findById(id);
     if (!j) continue;
-    rows.push([j.t, j.p, j.i, j.e, j.ab ? (j.ab[0] === "X" ? "Proposed removal" : j.ab[0]) : "", j.ab?.[1] || "", j.ab?.[2] || "", j.sjr ?? "", j.q || "", j.h ?? "", j.cs ?? "", j.s ? (j.inact ? "Inactive" : "Active") : "No", j.oa || j.doaj ? "Yes" : "No", j.apc ?? "", plainSummary(saved.summary || ""), j.url || ""]);
+    rows.push([j.t, j.p, j.i, j.e, j.ab ? (j.ab[0] === "X" ? (state.engine.meta.abdc_final ? "Not on 2025 list" : "Proposed removal") : j.ab[0]) : "", j.ab?.[1] || "", j.ab?.[2] || "", j.sjr ?? "", j.q || "", j.h ?? "", j.s ? (j.inact ? "Inactive" : "Active") : "No", j.oa ? "Yes" : "No", verifyUrls(j).scopus, verifyUrls(j).scimago, plainSummary(saved.summary || ""), j.url || ""]);
   }
   const csv = rows.map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv" })), download: "journal-shortlist.csv" });

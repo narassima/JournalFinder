@@ -297,6 +297,8 @@ input[type=range] { flex: 1; accent-color: var(--violet); }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: .84rem; }
 .kv dt { color: var(--text-faint); }
 .kv dd { margin: 0; color: var(--text); font-variant-numeric: tabular-nums; }
+.why-block .verify { margin: 12px 0 0; line-height: 1.65; }
+.why-block .verify a { font-weight: 600; }
 .cautions { margin: 0; padding-left: 18px; color: #fda4af; font-size: .85rem; }
 .terms { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
 .term { font-size: .74rem; padding: 2px 8px; border-radius: 6px; background: rgba(34,211,238,.1); color: #a5f3fc; border: 1px solid rgba(34,211,238,.25); }
