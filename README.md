@@ -91,3 +91,14 @@ Outputs are written directly to `docs/data/`:
 - `topics.json`: Topic taxonomy and keyword vocabulary.
 - `asjc.json`: ASJC classification codes and subject areas.
 - `meta.json`: Build metadata, timestamp, source counts, and the per-metric `vintage` (edition year) shown in the UI.
+
+---
+
+## Desktop shortcut (Windows)
+
+`launch_journalscope.pyw` starts a hidden local server for `docs/` (127.0.0.1, port 8431, falling back to 8432-8434) and opens the app in the default browser. A **JournalScope** shortcut on the Desktop runs it (`pythonw.exe` + this file, icon `journalscope.ico`).
+
+- Clicking it again while it runs only opens the browser; the server stops itself after 3 idle hours.
+- It serves `docs/` in place, so after `python build/build_data.py --offline` just refresh the page.
+- If the project folder moves, re-create the shortcut (target: `pythonw.exe "<folder>\launch_journalscope.pyw"`).
+- Use `--no-browser` to start the server without opening a window.

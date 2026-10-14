@@ -59,6 +59,9 @@ async function init() {
 
 // ------------------------------------------------------------ UI wiring
 function wireUI() {
+  window.addEventListener("resize", moveTabIndicator);
+  requestAnimationFrame(moveTabIndicator);
+  document.fonts?.ready.then(moveTabIndicator);
   $$(".tab").forEach((t) => t.addEventListener("click", () => showView(t.dataset.view)));
   $("#brand-home").addEventListener("click", (e) => { e.preventDefault(); showView("match"); });
   const abs = $("#in-abstract");
@@ -115,8 +118,17 @@ function wireUI() {
 }
 const emptyStateNode = document.getElementById("empty-state");
 
+// Slides the underline under the active tab (CSS transitions the two custom properties).
+function moveTabIndicator() {
+  const tabs = $(".tabs"), a = $(".tab.active", tabs);
+  if (!tabs || !a) return;
+  tabs.style.setProperty("--ind-x", `${a.offsetLeft}px`);
+  tabs.style.setProperty("--ind-w", `${a.offsetWidth}px`);
+}
+
 function showView(v) {
   $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === v));
+  moveTabIndicator();
   $$(".view").forEach((s) => s.classList.toggle("active", s.id === `view-${v}`));
   if (v === "shortlist") renderShortlist();
   if (v === "lookup") setTimeout(() => $("#lookup-q").focus(), 50);
@@ -345,7 +357,7 @@ function toggleStar(btn) {
   if ($("#view-shortlist").classList.contains("active")) renderShortlist();
 }
 function saveShortlist() { localStorage.setItem("js.shortlist", JSON.stringify([...state.shortlist])); updateShortlistCount(); }
-function updateShortlistCount() { $("#shortlist-count").textContent = state.shortlist.size; }
+function updateShortlistCount() { $("#shortlist-count").textContent = state.shortlist.size; moveTabIndicator(); }
 
 function renderShortlist() {
   const box = $("#shortlist-results");
